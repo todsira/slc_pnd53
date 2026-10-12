@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PND53 WHT Input</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f2ee; --surface: #ffffff; --surface-2: #faf9f6; --line: #e3dfd7;
+    --text: #1f1d1a; --muted: #6d675e; --accent: #1f5f4a; --accent-ink: #ffffff;
+    --accent-soft: #e4efe9; --warn: #9a5b12; --warn-soft: #fbf0df; --danger: #a33a2c;
+    --shadow: 0 1px 2px rgba(30,25,15,.06), 0 6px 20px rgba(30,25,15,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151513; --surface: #1e1d1b; --surface-2: #232220; --line: #34322e;
+      --text: #ece9e3; --muted: #a29c91; --accent: #5fb393; --accent-ink: #0f1a15;
+      --accent-soft: #1f3129; --warn: #e3a95c; --warn-soft: #33281a; --danger: #e07a6b;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 "IBM Plex Sans Thai", system-ui, sans-serif; }
+  .mono, .num { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .num { text-align: right; white-space: nowrap; }
+  header { padding: 20px 16px 8px; max-width: 1100px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); }
+  main { max-width: 1100px; margin: 0 auto; padding: 8px 16px 48px; display: grid; gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 16px; margin: 0; font-weight: 600; }
+  .card-head { padding: 14px 18px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .card-body { padding: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 16px; }
+  .span-2 { grid-column: span 2; } .span-4 { grid-column: 1 / -1; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr 1fr; } .span-2 { grid-column: 1 / -1; } }
+  @media (max-width: 460px) { .grid { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+  label small { color: var(--muted); opacity: .75; }
+  input, select { width: 100%; font: inherit; color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; min-height: 40px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+  input[readonly] { background: transparent; border-style: dashed; }
+  input.invalid { border-color: var(--danger); }
+  .readonly-strong { font-weight: 600; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+    border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; min-height: 40px; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+  .btn { font: inherit; border-radius: 8px; padding: 9px 18px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--text); cursor: pointer; min-height: 40px; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn.small { padding: 4px 12px; min-height: 30px; font-size: 13px; }
+  .btn:disabled { opacity: .55; cursor: progress; }
+  .edit-banner { display: none; background: var(--warn-soft); color: var(--warn);
+    padding: 8px 18px; font-size: 14px; border-bottom: 1px solid var(--line); }
+  .editing .edit-banner { display: block; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); font-size: 12.5px; background: var(--surface-2); white-space: nowrap; }
+  td.name { min-width: 220px; }
+  tr.is-editing td { background: var(--warn-soft); }
+  tfoot td { font-weight: 600; background: var(--surface-2); }
+  .empty { padding: 28px; text-align: center; color: var(--muted); }
+  /* modal */
+  .overlay { position: fixed; inset: 0; background: rgba(15,12,8,.45); display: none;
+    align-items: center; justify-content: center; padding: 16px; z-index: 20; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--surface); border-radius: 14px; width: 100%; max-width: 460px;
+    border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal h3 { margin: 0; padding: 16px 20px 6px; font-size: 18px; }
+  .modal p { margin: 0; padding: 0 20px; color: var(--muted); font-size: 14px; }
+  .modal dl { margin: 14px 20px 0; display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; font-size: 14px; }
+  .modal dt { color: var(--muted); } .modal dd { margin: 0; font-weight: 500; word-break: break-word; }
+  .modal .actions { padding: 0 20px 18px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 10px;
+    opacity: 0; transition: .2s; pointer-events: none; z-index: 30; max-width: calc(100% - 32px); }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+  .toast.error { background: var(--danger); color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="appTitle">บันทึกภาษีหัก ณ ที่จ่าย ภ.ง.ด.53</h1>
+    <div class="sub">เพิ่ม / แก้ไขรายการใน Sheet <span class="mono">Input</span></div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span class="badge" id="demoBadge" hidden>โหมดทดลอง (ไม่บันทึกจริง)</span>
+    <button class="btn small" id="btnKey" type="button">ตั้งค่ารหัส</button>
+  </div>
+</header>
+
+<main>
+  <!-- ===== Form ===== -->
+  <section class="card" id="formCard">
+    <div class="card-head"><h2 id="formTitle">เพิ่มรายการใหม่</h2></div>
+    <div class="edit-banner" id="editBanner"></div>
+    <form class="card-body" id="entryForm" novalidate>
+      <div class="grid">
+        <div>
+          <label for="fRef">Ref <small>(อัตโนมัติ)</small></label>
+          <input id="fRef" class="mono readonly-strong" readonly>
+          <div class="hint" id="refHint">ปี พ.ศ. + เลขลำดับ 3 หลัก</div>
+        </div>
+        <div>
+          <label for="fDate">วันที่ (Date) <small>วว/ดด/ปปปป พ.ศ.</small></label>
+          <input id="fDate" class="mono" inputmode="numeric" placeholder="12/10/2569" maxlength="10" autocomplete="off">
+        </div>
+        <div class="span-2">
+          <label for="fPayee">Payee ID</label>
+          <select id="fPayee"><option value="">— เลือกผู้รับเงิน —</option></select>
+        </div>
+        <div class="span-4">
+          <label for="fName">ชื่อผู้มีเงินได้ (Name)</label>
+          <input id="fName" readonly placeholder="แสดงอัตโนมัติจาก Payee ID">
+        </div>
+        <div class="span-2">
+          <label for="fType">ประเภทเงินได้ (Type)</label>
+          <select id="fType"></select>
+          <input id="fTypeCustom" placeholder="ระบุประเภทเงินได้" style="margin-top:8px" hidden maxlength="100">
+        </div>
+        <div class="span-2">
+          <label>อัตราภาษี (Rate)</label>
+          <div class="chips" id="rateChips"></div>
+          <input id="fRateCustom" class="mono" inputmode="decimal" placeholder="เช่น 2 หรือ 1.5 (%)" style="margin-top:8px" hidden>
+        </div>
+        <div class="span-2">
+          <label for="fAmount">จำนวนเงิน (Amount) <small>บาท</small></label>
+          <input id="fAmount" class="mono" inputmode="decimal" placeholder="0.00" autocomplete="off">
+        </div>
+        <div class="span-2">
+          <label for="fWht">ภาษีที่หัก (WHT) <small>= Amount × Rate</small></label>
+          <input id="fWht" class="mono readonly-strong" readonly value="0.00">
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" id="btnReset">ล้างข้อมูล</button>
+        <button class="btn primary" type="submit" id="btnSubmit">บันทึก</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ===== List ===== -->
+  <section class="card">
+    <div class="card-head">
+      <h2 id="listTitle">รายการ</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="tabs" id="monthTabs"></div>
+        <button class="btn small" type="button" id="btnRefresh">รีเฟรช</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Ref</th><th>Date</th><th>Payee ID</th><th>Name</th><th>Type</th>
+          <th class="num">Rate</th><th class="num">Amount</th><th class="num">WHT</th><th></th>
+        </tr></thead>
+        <tbody id="listBody"><tr><td colspan="9" class="empty">กำลังโหลดข้อมูล…</td></tr></tbody>
+        <tfoot id="listFoot"></tfoot>
+      </table>
+    </div>
+  </section>
+</main>
+
+<!-- Confirm modal -->
+<div class="overlay" id="confirmOverlay" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="modal">
+    <h3 id="confirmTitle">ยืนยันการบันทึกข้อมูล</h3>
+    <p>กรุณาตรวจสอบข้อมูลให้ถูกต้องก่อนกดยืนยัน</p>
+    <dl id="confirmList"></dl>
+    <div class="actions">
+      <button class="btn" type="button" id="btnCancel">ยกเลิก</button>
+      <button class="btn primary" type="button" id="btnConfirm">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
+<!-- API key modal -->
+<div class="overlay" id="keyOverlay" role="dialog" aria-modal="true" aria-labelledby="keyTitle">
+  <div class="modal">
+    <h3 id="keyTitle">ใส่รหัสเข้าใช้งาน</h3>
+    <p>รหัส (API key) ได้จากการรัน <span class="mono">setupApiKey()</span> ใน Apps Script — บันทึกไว้ในเบราว์เซอร์นี้เท่านั้น</p>
+    <div style="padding:14px 20px 0"><input id="keyInput" class="mono" type="password" autocomplete="off" placeholder="API key"></div>
+    <div class="actions" style="margin-top:14px">
+      <button class="btn" type="button" id="btnKeyCancel">ปิด</button>
+      <button class="btn primary" type="button" id="btnKeySave">บันทึกรหัส</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
