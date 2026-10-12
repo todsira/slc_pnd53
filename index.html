@@ -73,20 +73,6 @@
   tr.is-editing td { background: var(--warn-soft); }
   tfoot td { font-weight: 600; background: var(--surface-2); }
   .empty { padding: 28px; text-align: center; color: var(--muted); }
-  .combo { position: relative; }
-  .combo input { padding-right: 36px; }
-  .combo-toggle { position: absolute; right: 4px; top: 4px; bottom: 4px; width: 30px; border: 0;
-    background: none; color: var(--muted); cursor: pointer; font-size: 14px; }
-  .combo-list { position: absolute; z-index: 10; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px;
-    list-style: none; max-height: 300px; overflow-y: auto; background: var(--surface);
-    border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.15); }
-  .combo-list li { padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
-  .combo-list li .cid { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--muted); min-width: 64px; }
-  .combo-list li .ctax { margin-left: auto; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .combo-list li[aria-selected="true"], .combo-list li:hover { background: var(--accent-soft); }
-  .combo-list li.none { color: var(--muted); cursor: default; background: none; }
-  .combo-list mark { background: none; color: var(--accent); font-weight: 600; }
-  @media (max-width: 520px) { .combo-list li .ctax { display: none; } }
   .viewtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
   .viewtab { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent;
     color: var(--muted); padding: 10px 14px; cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
@@ -148,14 +134,8 @@
           <input id="fDate" class="mono" inputmode="numeric" placeholder="12/10/2569" maxlength="10" autocomplete="off">
         </div>
         <div class="span-2">
-          <label for="fPayeeInput">Payee ID <small>(พิมพ์ค้นหา ID / ชื่อ / เลขผู้เสียภาษี)</small></label>
-          <div class="combo" id="payeeCombo">
-            <input id="fPayeeInput" role="combobox" aria-expanded="false" aria-controls="fPayeeList"
-                   aria-autocomplete="list" autocomplete="off" placeholder="พิมพ์เพื่อค้นหาผู้รับเงิน…">
-            <button type="button" class="combo-toggle" id="fPayeeToggle" tabindex="-1" aria-label="แสดงรายชื่อทั้งหมด">▾</button>
-            <ul class="combo-list" id="fPayeeList" role="listbox" hidden></ul>
-          </div>
-          <select id="fPayee" hidden aria-hidden="true" tabindex="-1"><option value="">— เลือกผู้รับเงิน —</option></select>
+          <label for="fPayee">Payee ID</label>
+          <select id="fPayee"><option value="">— เลือกผู้รับเงิน —</option></select>
         </div>
         <div class="span-4">
           <label for="fName">ชื่อผู้มีเงินได้ (Name)</label>

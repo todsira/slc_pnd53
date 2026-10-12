@@ -229,127 +229,7 @@
   function fillPayees() {
     el.payee.innerHTML = '<option value="">— เลือกผู้รับเงิน —</option>' +
       state.payees.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)} — ${escapeHtml(p.name)}</option>`).join('');
-    syncPayeeInput();
   }
-
-  /* ---------------- searchable Payee box (drives the hidden <select>) ---------------- */
-  const combo = { input: $('fPayeeInput'), list: $('fPayeeList'), toggle: $('fPayeeToggle'), items: [], active: -1 };
-
-  function payeeLabel(id) {
-    if (!id) return '';
-    const p = state.payees.find(x => x.id === id);
-    if (p) return `${p.id} — ${p.name}`;
-    const opt = Array.from(el.payee.options).find(o => o.value === id);
-    return opt ? opt.textContent : id;
-  }
-  function syncPayeeInput() { combo.input.value = payeeLabel(el.payee.value); }
-
-  function highlight(text, q) {
-    text = String(text || '');
-    const i = q ? text.toLowerCase().indexOf(q) : -1;
-    if (i < 0) return escapeHtml(text);
-    return escapeHtml(text.slice(0, i)) + '<mark>' + escapeHtml(text.slice(i, i + q.length)) + '</mark>' + escapeHtml(text.slice(i + q.length));
-  }
-
-  /** Ranked matches on ID, name (with or without prefix) and tax ID. */
-  function searchPayees(raw) {
-    const q = String(raw || '').trim().toLowerCase();
-    if (!q) return state.payees.slice();
-    const qDigits = q.replace(/\D/g, '');
-    const words = q.split(/\s+/).filter(Boolean);
-    const out = [];
-    state.payees.forEach(p => {
-      const id = p.id.toLowerCase(), name = String(p.name || '').toLowerCase();
-      const short = String(p.shortName || '').toLowerCase(), tax = String(p.taxId || '').replace(/\D/g, '');
-      const hay = id + ' ' + name + ' ' + short;
-      let s = -1;
-      if (id === q) s = 0;
-      else if (id.startsWith(q)) s = 1;
-      else if (short.startsWith(q) || name.startsWith(q)) s = 2;
-      else if (id.includes(q)) s = 3;
-      else if (name.includes(q) || short.includes(q)) s = 4;
-      else if (qDigits.length >= 3 && qDigits.length === q.replace(/[\s-]/g, '').length && tax.includes(qDigits)) s = 5;
-      else if (words.length > 1 && words.every(w => hay.includes(w))) s = 6;
-      if (s >= 0) out.push([s, p]);
-    });
-    return out.sort((a, b) => a[0] - b[0]).map(x => x[1]);
-  }
-
-  function renderCombo(raw) {
-    const q = String(raw || '').trim().toLowerCase();
-    combo.items = searchPayees(q).slice(0, 50);
-    const cur = combo.items.findIndex(p => p.id === el.payee.value);
-    combo.active = q ? (combo.items.length ? 0 : -1) : cur;
-    combo.list.innerHTML = combo.items.length
-      ? combo.items.map((p, i) => `<li role="option" id="pOpt${i}" data-i="${i}" aria-selected="${i === combo.active}">
-          <span class="cid">${highlight(p.id, q)}</span><span>${highlight(p.name, q)}</span>
-          <span class="ctax">${escapeHtml(p.taxId || '')}</span></li>`).join('')
-      : '<li class="none">ไม่พบผู้รับเงินที่ตรงกับคำค้นหา</li>';
-    combo.list.hidden = false;
-    combo.input.setAttribute('aria-expanded', 'true');
-    moveActive(0);
-  }
-
-  function moveActive(delta) {
-    if (!combo.items.length) return;
-    if (delta) combo.active = Math.max(0, Math.min(combo.items.length - 1, combo.active + delta));
-    combo.list.querySelectorAll('li[role="option"]').forEach((li, i) => li.setAttribute('aria-selected', String(i === combo.active)));
-    const li = $('pOpt' + combo.active);
-    if (li) { li.scrollIntoView({ block: 'nearest' }); combo.input.setAttribute('aria-activedescendant', li.id); }
-  }
-
-  function closeCombo() {
-    combo.list.hidden = true;
-    combo.input.setAttribute('aria-expanded', 'false');
-    combo.input.removeAttribute('aria-activedescendant');
-  }
-
-  function choosePayee(p) {
-    el.payee.value = p ? p.id : '';
-    el.payee.dispatchEvent(new Event('change'));
-    closeCombo();
-  }
-
-  combo.input.addEventListener('input', () => { combo.input.classList.remove('invalid'); renderCombo(combo.input.value); });
-  combo.input.addEventListener('focus', () => { combo.input.select(); renderCombo(''); });
-  // Clicking a box that still shows the chosen payee selects the text, so typing replaces it
-  combo.input.addEventListener('click', () => {
-    if (combo.input.value && combo.input.value === payeeLabel(el.payee.value)) combo.input.select();
-    if (combo.list.hidden) renderCombo('');
-  });
-  combo.input.addEventListener('keydown', e => {
-    const open = !combo.list.hidden;
-    if (e.key === 'ArrowDown') { e.preventDefault(); open ? moveActive(1) : renderCombo(''); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); if (open) moveActive(-1); }
-    else if (e.key === 'Enter' && open) {
-      e.preventDefault();                       // don't submit the form
-      if (combo.active >= 0) choosePayee(combo.items[combo.active]);
-    }
-    else if (e.key === 'Escape' && open) { e.stopPropagation(); closeCombo(); syncPayeeInput(); }
-  });
-  combo.input.addEventListener('blur', () => {
-    setTimeout(() => {
-      closeCombo();
-      const typed = combo.input.value.trim();
-      if (!typed) { if (el.payee.value) choosePayee(null); return; }
-      if (typed === payeeLabel(el.payee.value)) return;
-      const exact = state.payees.find(p => p.id.toLowerCase() === typed.toLowerCase());
-      if (exact) { choosePayee(exact); return; }
-      const hits = searchPayees(typed);
-      if (hits.length === 1) choosePayee(hits[0]);   // only one possible match → take it
-      else syncPayeeInput();                           // otherwise keep the previous choice
-    }, 120);
-  });
-  combo.list.addEventListener('mousedown', e => {
-    e.preventDefault();                              // keep focus so blur doesn't fire first
-    const li = e.target.closest('li[data-i]');
-    if (li) choosePayee(combo.items[Number(li.dataset.i)]);
-  });
-  combo.toggle.addEventListener('mousedown', e => {
-    e.preventDefault();
-    if (!combo.list.hidden) closeCombo();
-    else { combo.input.focus(); renderCombo(''); }
-  });
 
   function fillTypes() {
     el.type.innerHTML = state.types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') +
@@ -404,11 +284,11 @@
     el.submit.textContent = 'บันทึก';
     el.reset.textContent = 'ล้างข้อมูล';
     el.date.value = fmtDateInput(todayBE());
-    el.payee.value = ''; el.name.value = ''; syncPayeeInput();
+    el.payee.value = ''; el.name.value = '';
     el.type.selectedIndex = 0; el.typeCustom.hidden = true; el.typeCustom.value = '';
     el.rateCustom.value = ''; setRate(3);
     el.amount.value = ''; updateWht();
-    [el.date, combo.input, el.amount, el.typeCustom, el.rateCustom].forEach(x => x.classList.remove('invalid'));
+    [el.date, el.payee, el.amount, el.typeCustom, el.rateCustom].forEach(x => x.classList.remove('invalid'));
     updateRefPreview();
     renderList();
   }
@@ -427,7 +307,7 @@
     if (!state.payees.some(p => p.id === e.payeeId)) {
       el.payee.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(e.payeeId)}">${escapeHtml(e.payeeId)} — (ไม่พบใน Payee 53)</option>`);
     }
-    el.payee.value = e.payeeId; el.name.value = e.name; syncPayeeInput();
+    el.payee.value = e.payeeId; el.name.value = e.name;
     if (state.types.includes(e.type)) { el.type.value = e.type; el.typeCustom.hidden = true; }
     else { el.type.value = '__custom'; el.typeCustom.hidden = false; el.typeCustom.value = e.type; }
     if (state.rates.includes(e.rate)) setRate(e.rate);
@@ -443,7 +323,7 @@
     const d = parseBEDate(el.date.value); mark(el.date, !!d);
     const payee = state.payees.find(p => p.id === el.payee.value) ||
       (state.editing && el.payee.value === state.editing.payeeId ? { id: state.editing.payeeId, name: state.editing.name } : null);
-    mark(combo.input, !!payee);
+    mark(el.payee, !!payee);
     const type = currentType(); if (el.type.value === '__custom') mark(el.typeCustom, !!type);
     const rate = currentRate(); if (state.rate === 'custom') mark(el.rateCustom, !isNaN(rate));
     const amount = round2(parseAmount(el.amount.value)); mark(el.amount, amount > 0);
@@ -709,8 +589,7 @@
   el.payee.addEventListener('change', () => {
     const p = state.payees.find(x => x.id === el.payee.value);
     el.name.value = p ? p.name : (state.editing && el.payee.value === state.editing.payeeId ? state.editing.name : '');
-    combo.input.classList.remove('invalid');
-    syncPayeeInput();
+    el.payee.classList.remove('invalid');
   });
 
   el.type.addEventListener('change', () => {
