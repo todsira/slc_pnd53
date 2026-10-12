@@ -26,6 +26,31 @@ GitHub Pages (index.html + app.js)  ──fetch──▶  Apps Script Web App (C
   Edits keep the original Ref.
 * If the Name or WHT column in the sheet uses formulas, the script copies the formula down instead of
   writing a fixed value, so the existing sheet logic (WHT53 Data, Report, etc.) keeps working.
+* If the last entry is on the sheet's final row, a blank row is added first, then the entry is written.
+
+### เพิ่ม Payee ใหม่ (new payee tab)
+
+Adds a row to the **Payee 53** sheet with the same columns (A–M):
+
+| Column | Behaviour |
+|---|---|
+| ลำดับ | Next number after the highest existing one. |
+| Payee ID | Typed by you; must not already exist (checked live and again on the server). |
+| คำนำหน้า | บจก. / บมจ. / หจก. / นาย / นาง / นางสาว, any prefix already in the sheet, or custom. |
+| ชื่อของผู้มีเงินได้ | Name without the prefix. |
+| เลขประจำตัวผู้เสียภาษี | 13 digits, auto-formatted `0-1955-52000-64-1`, stored as text. The Thai check digit is verified; if it fails you get a warning and must confirm explicitly. The same tax ID + branch can't be added twice. |
+| สาขาที่ | 5 digits, default `00000`, stored as text. |
+| ที่อยู่ / ตำบล / อำเภอ / จังหวัด / รหัสไปรษณีย์ | Address parts; province has a suggestion list; postal code must be 5 digits. |
+| ชื่อสำหรับกรอกข้อมูล | Built automatically, e.g. บจก. + แอมเพอริช สโตน → `บริษัท แอมเพอริช สโตน จำกัด`. Editable. |
+| ที่อยู่สำหรับกรอกข้อมูล | Built automatically: `… ต.… อ.… จ.… 12345`, or `… แขวง… เขต… กรุงเทพมหานคร 10xxx` for Bangkok. Editable. |
+
+* Any column that holds a formula in the previous row (e.g. if ชื่อ/ที่อยู่สำหรับกรอกข้อมูล are formulas) gets the formula copied down instead of a typed value.
+* If the last payee is on the sheet's final row, a blank row is added first.
+* A Thai confirmation popup appears before saving. The new payee shows in the Payee ID drop-down right away,
+  and **ใช้บันทึกภาษี** on any payee row jumps to the tax-entry tab with that payee selected.
+
+### Demo mode
+
 * With no API URL configured, the page runs in **demo mode** with sample data (nothing is saved) —
   handy for checking the GitHub Pages site before wiring it up.
 

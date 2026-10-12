@@ -50,6 +50,8 @@ function handle_(p) {
       case 'nextRef': return json_({ ok: true, data: nextRef_(Number(p.year)) });
       case 'create':  return json_({ ok: true, data: withLock_(() => createEntry_(p.entry)) });
       case 'update':  return json_({ ok: true, data: withLock_(() => updateEntry_(p.entry)) });
+      case 'payees':  return json_({ ok: true, data: getPayees_() });
+      case 'createPayee': return json_({ ok: true, data: withLock_(() => createPayee_(p.payee)) });
       default:        return json_({ ok: false, error: 'Unknown action: ' + p.action });
     }
   } catch (err) {
@@ -102,26 +104,167 @@ function tz_() { return ss_().getSpreadsheetTimeZone(); }
 
 /* ================================= Payees ================================= */
 
+/* Payee 53 layout (A–M). Columns are matched by header text; these are the fallbacks. */
+const PCOL = { SEQ: 1, ID: 2, PREFIX: 3, NAME: 4, TAX: 5, BRANCH: 6, ADDR: 7, SUB: 8,
+               DIST: 9, PROV: 10, ZIP: 11, FULLNAME: 12, FULLADDR: 13 };
+const PHEAD = {
+  SEQ: h => h === 'ลำดับ',
+  ID: h => h.toLowerCase() === 'payee id',
+  PREFIX: h => h.indexOf('คำนำหน้า') === 0,
+  NAME: h => h.indexOf('ชื่อของ') === 0,
+  TAX: h => h.indexOf('เลขประจำตัวผู้เสียภาษี') === 0,
+  BRANCH: h => h.indexOf('สาขา') === 0,
+  ADDR: h => h === 'ที่อยู่',
+  SUB: h => h.indexOf('ตำบล') === 0,
+  DIST: h => h.indexOf('อำเภอ') === 0,
+  PROV: h => h.indexOf('จังหวัด') === 0,
+  ZIP: h => h.indexOf('รหัสไปรษณีย์') === 0,
+  FULLNAME: h => h.indexOf('ชื่อสำหรับกรอกข้อมูล') === 0,
+  FULLADDR: h => h.indexOf('ที่อยู่สำหรับกรอกข้อมูล') === 0
+};
+const DEFAULT_PREFIXES = ['บจก.', 'บมจ.', 'หจก.', 'นาย', 'นาง', 'นางสาว'];
+
+function payeeCols_(sh) {
+  const lastCol = Math.max(sh.getLastColumn(), 13);
+  const header = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0]
+    .map(h => String(h).replace(/\s+/g, ' ').trim());
+  const cols = {};
+  Object.keys(PCOL).forEach(k => {
+    const i = header.findIndex(PHEAD[k]);
+    cols[k] = i >= 0 ? i + 1 : PCOL[k];
+  });
+  return cols;
+}
+
 function getPayees_() {
   const sh = sheet_(CONFIG.PAYEE_SHEET);
   const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
   if (lastRow < 2) return [];
-  const values = sh.getRange(1, 1, lastRow, lastCol).getDisplayValues();
-  const header = values[0].map(h => String(h).replace(/\s+/g, ' ').trim());
-
-  let idCol = header.findIndex(h => h.toLowerCase() === 'payee id');
-  let nameCol = header.findIndex(h => h.indexOf('ชื่อสำหรับกรอกข้อมูล') === 0);
-  if (idCol < 0) idCol = 1;    // column B
-  if (nameCol < 0) nameCol = 11; // column L
-
+  const C = payeeCols_(sh);
+  const width = Math.max(sh.getLastColumn(), 13);
+  const values = sh.getRange(2, 1, lastRow - 1, width).getDisplayValues();
+  const get = (r, k) => String(r[C[k] - 1] || '').trim();
   const out = [];
-  for (let i = 1; i < values.length; i++) {
-    const id = String(values[i][idCol] || '').trim();
-    if (!id) continue;
-    out.push({ id: id, name: String(values[i][nameCol] || '').trim() });
-  }
+  values.forEach((r, i) => {
+    const id = get(r, 'ID');
+    if (!id) return;
+    const fullName = get(r, 'FULLNAME') || [get(r, 'PREFIX'), get(r, 'NAME')].filter(String).join(' ');
+    out.push({
+      row: i + 2, seq: get(r, 'SEQ'), id: id, name: fullName,
+      prefix: get(r, 'PREFIX'), shortName: get(r, 'NAME'), taxId: get(r, 'TAX'), branch: get(r, 'BRANCH'),
+      address: get(r, 'ADDR'), subdistrict: get(r, 'SUB'), district: get(r, 'DIST'),
+      province: get(r, 'PROV'), zip: get(r, 'ZIP'), fullAddress: get(r, 'FULLADDR')
+    });
+  });
   return out;
+}
+
+/* ---------------------------- new payee ---------------------------- */
+
+const isBangkok_ = p => /^(กรุงเทพ|กทม)/.test(String(p || '').trim());
+
+function buildFullName_(prefix, name) {
+  prefix = String(prefix || '').trim(); name = String(name || '').trim();
+  switch (prefix) {
+    case 'บจก.': return 'บริษัท ' + name + ' จำกัด';
+    case 'บมจ.': return 'บริษัท ' + name + ' จำกัด (มหาชน)';
+    case 'หจก.': return 'ห้างหุ้นส่วนจำกัด ' + name;
+    case 'หสม.': return 'ห้างหุ้นส่วนสามัญ ' + name;
+    case 'นาย': case 'นาง': case 'นางสาว': return prefix + name;
+    default: return (prefix ? prefix + ' ' : '') + name;
+  }
+}
+
+function buildFullAddress_(p) {
+  const bkk = isBangkok_(p.province);
+  return [
+    p.address,
+    p.subdistrict ? (bkk ? 'แขวง' : 'ต.') + p.subdistrict : '',
+    p.district ? (bkk ? 'เขต' : 'อ.') + p.district : '',
+    p.province ? (bkk ? 'กรุงเทพมหานคร' : 'จ.' + p.province) : '',
+    p.zip
+  ].map(s => String(s || '').trim()).filter(String).join(' ');
+}
+
+/** Thai 13-digit tax ID checksum. */
+function validTaxId_(digits) {
+  if (!/^\d{13}$/.test(digits)) return false;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(digits[i]) * (13 - i);
+  return (11 - (sum % 11)) % 10 === Number(digits[12]);
+}
+
+const fmtTaxId_ = d => d[0] + '-' + d.slice(1, 5) + '-' + d.slice(5, 10) + '-' + d.slice(10, 12) + '-' + d[12];
+
+function createPayee_(p) {
+  if (!p) throw new Error('Missing payee');
+  const s = k => String(p[k] == null ? '' : p[k]).trim();
+  const existing = getPayees_();
+
+  const id = s('id');
+  if (!id) throw new Error('กรุณาระบุ Payee ID');
+  if (id.length > 20) throw new Error('Payee ID ยาวเกินไป');
+  if (existing.some(x => x.id === id)) throw new Error('Payee ID ' + id + ' มีอยู่แล้ว');
+
+  const name = s('shortName');
+  if (!name) throw new Error('กรุณาระบุชื่อผู้มีเงินได้');
+
+  const tax = s('taxId').replace(/\D/g, '');
+  if (tax.length !== 13) throw new Error('เลขประจำตัวผู้เสียภาษีต้องมี 13 หลัก');
+  if (!validTaxId_(tax) && !p.allowInvalidTaxId) throw new Error('เลขประจำตัวผู้เสียภาษีไม่ถูกต้อง (checksum)');
+
+  const branchDigits = s('branch').replace(/\D/g, '') || '0';
+  if (branchDigits.length > 5) throw new Error('สาขาที่ต้องไม่เกิน 5 หลัก');
+  const branch = branchDigits.padStart(5, '0');
+
+  const dup = existing.find(x => x.taxId.replace(/\D/g, '') === tax &&
+    (x.branch.replace(/\D/g, '') || '0').padStart(5, '0') === branch);
+  if (dup) throw new Error('เลขผู้เสียภาษีและสาขานี้มีอยู่แล้ว (Payee ID ' + dup.id + ')');
+
+  const zip = s('zip');
+  if (zip && !/^\d{5}$/.test(zip)) throw new Error('รหัสไปรษณีย์ต้องเป็นตัวเลข 5 หลัก');
+  if (!s('address')) throw new Error('กรุณาระบุที่อยู่');
+  if (!s('province')) throw new Error('กรุณาระบุจังหวัด');
+
+  const rec = {
+    id: id, prefix: s('prefix'), shortName: name, taxId: fmtTaxId_(tax), branch: branch,
+    address: s('address'), subdistrict: s('subdistrict'), district: s('district'),
+    province: s('province'), zip: zip
+  };
+  rec.fullName = s('fullName') || buildFullName_(rec.prefix, rec.shortName);
+  rec.fullAddress = s('fullAddress') || buildFullAddress_(rec);
+
+  const sh = sheet_(CONFIG.PAYEE_SHEET);
+  const C = payeeCols_(sh);
+  const last = lastDataRow_(sh, C.ID);
+  const row = last + 1;
+  ensureRowExists_(sh, row);
+
+  const width = Math.max(sh.getLastColumn(), 13);
+  if (last >= 2) {
+    sh.getRange(last, 1, 1, width)
+      .copyTo(sh.getRange(row, 1, 1, width), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  }
+  const tplF = last >= 2 ? sh.getRange(last, 1, 1, width).getFormulasR1C1()[0] : [];
+  const rowF = sh.getRange(row, 1, 1, width).getFormulasR1C1()[0];
+
+  const maxSeq = existing.reduce((m, x) => Math.max(m, Number(x.seq) || 0), 0);
+  const values = {
+    SEQ: maxSeq + 1, ID: rec.id, PREFIX: rec.prefix, NAME: rec.shortName, TAX: rec.taxId,
+    BRANCH: rec.branch, ADDR: rec.address, SUB: rec.subdistrict, DIST: rec.district,
+    PROV: rec.province, ZIP: rec.zip, FULLNAME: rec.fullName, FULLADDR: rec.fullAddress
+  };
+  const TEXT = { TAX: 1, BRANCH: 1, ZIP: 1 };   // keep leading zeros
+  Object.keys(values).forEach(k => {
+    const col = C[k];
+    const cell = sh.getRange(row, col);
+    if (rowF[col - 1]) return;                               // formula already there
+    if (tplF[col - 1]) { cell.setFormulaR1C1(tplF[col - 1]); return; }
+    if (TEXT[k]) cell.setNumberFormat('@');
+    cell.setValue(values[k]);
+  });
+  SpreadsheetApp.flush();
+  return getPayees_().find(x => x.id === rec.id) || rec;
 }
 
 /* ============================= Date helpers =============================== */
@@ -202,10 +345,11 @@ function readEntries_() {
   return out;
 }
 
-function lastDataRow_(sh) {
+/** Last row (≥2) whose key column is not blank; 1 if there is none. */
+function lastDataRow_(sh, keyCol) {
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return 1;
-  const refs = sh.getRange(2, COL.REF, lastRow - 1, 1).getDisplayValues();
+  const refs = sh.getRange(2, keyCol || COL.REF, lastRow - 1, 1).getDisplayValues();
   for (let i = refs.length - 1; i >= 0; i--) {
     if (String(refs[i][0]).trim()) return i + 2;
   }
@@ -251,8 +395,12 @@ function init_() {
   const types = CONFIG.DEFAULT_TYPES.slice();
   all.forEach(e => { if (e.type && types.indexOf(e.type) < 0) types.push(e.type); });
   const t = todayBE_();
+  const payees = getPayees_();
+  const prefixes = DEFAULT_PREFIXES.slice();
+  payees.forEach(p => { if (p.prefix && prefixes.indexOf(p.prefix) < 0) prefixes.push(p.prefix); });
   return {
-    payees: getPayees_(),
+    payees: payees,
+    prefixes: prefixes,
     types: types,
     rates: CONFIG.DEFAULT_RATES,
     today: t,
@@ -332,6 +480,18 @@ function setValueOrFormula_(sh, row, col, value, rowFormulas, tplFormulas) {
   cell.setValue(value);
 }
 
+/**
+ * If the last entry sits on the sheet's final row, there is no row to write into.
+ * Add blank row(s) at the bottom first (they inherit the formatting of the row above).
+ */
+function ensureRowExists_(sh, row) {
+  const maxRows = sh.getMaxRows();
+  if (row > maxRows) {
+    sh.insertRowsAfter(maxRows, row - maxRows);
+    SpreadsheetApp.flush();
+  }
+}
+
 function rowToEntry_(sh, row) {
   const found = readEntries_().find(x => x.row === row);
   return found || null;
@@ -343,6 +503,7 @@ function createEntry_(entry) {
   const ref = nextRef_(e.date.y);
   const last = lastDataRow_(sh);
   const row = last + 1;
+  ensureRowExists_(sh, row);
   writeRow_(sh, row, last, ref, e);
   SpreadsheetApp.flush();
   return rowToEntry_(sh, row);

@@ -65,7 +65,49 @@
   const escapeHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  const helpers = { round2, parseAmount, fmtMoney, calcWht, parseBEDate, maskDate, nextRefFrom, fmtDate };
+  /* ---- payee helpers (same rules as Code.gs) ---- */
+  function validTaxId(digits) {
+    if (!/^\d{13}$/.test(digits)) return false;
+    let sum = 0;
+    for (let i = 0; i < 12; i++) sum += Number(digits[i]) * (13 - i);
+    return (11 - (sum % 11)) % 10 === Number(digits[12]);
+  }
+
+  /** Formats as you type: 0-1955-52000-64-1 */
+  function maskTaxId(v) {
+    const d = String(v).replace(/\D/g, '').slice(0, 13);
+    const parts = [d.slice(0, 1), d.slice(1, 5), d.slice(5, 10), d.slice(10, 12), d.slice(12, 13)];
+    return parts.filter(Boolean).join('-');
+  }
+
+  const isBangkok = p => /^(กรุงเทพ|กทม)/.test(String(p || '').trim());
+
+  function buildFullName(prefix, name) {
+    prefix = String(prefix || '').trim(); name = String(name || '').trim();
+    if (!name) return '';
+    switch (prefix) {
+      case 'บจก.': return 'บริษัท ' + name + ' จำกัด';
+      case 'บมจ.': return 'บริษัท ' + name + ' จำกัด (มหาชน)';
+      case 'หจก.': return 'ห้างหุ้นส่วนจำกัด ' + name;
+      case 'หสม.': return 'ห้างหุ้นส่วนสามัญ ' + name;
+      case 'นาย': case 'นาง': case 'นางสาว': return prefix + name;
+      default: return (prefix ? prefix + ' ' : '') + name;
+    }
+  }
+
+  function buildFullAddress(p) {
+    const bkk = isBangkok(p.province);
+    return [
+      p.address,
+      p.subdistrict ? (bkk ? 'แขวง' : 'ต.') + p.subdistrict : '',
+      p.district ? (bkk ? 'เขต' : 'อ.') + p.district : '',
+      p.province ? (bkk ? 'กรุงเทพมหานคร' : 'จ.' + p.province) : '',
+      p.zip
+    ].map(s => String(s || '').trim()).filter(Boolean).join(' ');
+  }
+
+  const helpers = { round2, parseAmount, fmtMoney, calcWht, parseBEDate, maskDate, nextRefFrom, fmtDate,
+    validTaxId, maskTaxId, buildFullName, buildFullAddress };
   if (typeof module !== 'undefined' && module.exports) { module.exports = helpers; return; }
 
   /* ================================ state ================================ */
@@ -73,7 +115,7 @@
   const DEMO = !CFG.API_URL;
   const KEY_STORE = 'pnd53_api_key';
   const state = {
-    payees: [], types: [], rates: [1, 3, 5],
+    payees: [], types: [], rates: [1, 3, 5], prefixes: ['บจก.', 'บมจ.', 'หจก.', 'นาย', 'นาง', 'นางสาว'],
     list: { current: null, previous: null, entries: [] },
     filter: 'all', rate: 3, editing: null, pending: null,
     refCache: {}
@@ -87,7 +129,7 @@
     amount: $('fAmount'), wht: $('fWht'), submit: $('btnSubmit'), reset: $('btnReset'),
     listTitle: $('listTitle'), tabs: $('monthTabs'), body: $('listBody'), foot: $('listFoot'),
     confirm: $('confirmOverlay'), confirmTitle: $('confirmTitle'), confirmList: $('confirmList'),
-    btnConfirm: $('btnConfirm'), btnCancel: $('btnCancel'),
+    btnConfirm: $('btnConfirm'), btnCancel: $('btnCancel'), confirmWarn: $('confirmWarn'),
     keyOverlay: $('keyOverlay'), keyInput: $('keyInput'), toast: $('toast')
   };
 
@@ -115,10 +157,17 @@
   const demo = (() => {
     const t = todayBE();
     const prevM = t.m === 1 ? 12 : t.m - 1, prevY = t.m === 1 ? t.y - 1 : t.y;
+    const mk = (seq, id, prefix, shortName, taxId, province, district, subdistrict) => {
+      const p = { seq: String(seq), id, prefix, shortName, taxId, branch: '00000', address: '99 หมู่ 1',
+        subdistrict, district, province, zip: '10000' };
+      p.name = p.fullName = buildFullName(prefix, shortName);
+      p.fullAddress = buildFullAddress(p);
+      return p;
+    };
     const payees = [
-      { id: '53อพ01', name: 'บริษัท ตัวอย่าง หนึ่ง จำกัด' },
-      { id: '53ขส02', name: 'บริษัท ขนส่งตัวอย่าง จำกัด' },
-      { id: '53ปก03', name: 'บริษัท ประกันตัวอย่าง จำกัด (มหาชน)' }
+      mk(1, '53อพ01', 'บจก.', 'ตัวอย่าง หนึ่ง', '0-1055-00000-01-1', 'สระบุรี', 'เมือง', 'ปากเพรียว'),
+      mk(2, '53ขส02', 'บจก.', 'ขนส่งตัวอย่าง', '0-1055-00000-02-0', 'กรุงเทพมหานคร', 'บางรัก', 'สีลม'),
+      mk(3, '53ปก03', 'บมจ.', 'ประกันตัวอย่าง', '0-1075-00000-03-9', 'กรุงเทพมหานคร', 'ปทุมวัน', 'ลุมพินี')
     ];
     const entries = [
       { ref: prevY + '001', d: 5, m: prevM, y: prevY, payeeId: '53อพ01', type: 'ค่าบริการ', rate: 3, amount: 125000 },
@@ -139,7 +188,21 @@
     };
     return new Promise((resolve, reject) => setTimeout(() => {
       try {
-        if (action === 'init') resolve({ payees: demo.payees, types: ['ค่าบริการ', 'ค่าขนส่ง', 'ค่าประกัน'],
+        if (action === 'payees') resolve(demo.payees.slice());
+        else if (action === 'createPayee') {
+          const q = p.payee, tax = String(q.taxId).replace(/\D/g, '');
+          if (!q.id) throw new Error('กรุณาระบุ Payee ID');
+          if (demo.payees.some(x => x.id === q.id)) throw new Error('Payee ID ' + q.id + ' มีอยู่แล้ว');
+          if (!validTaxId(tax) && !q.allowInvalidTaxId) throw new Error('เลขประจำตัวผู้เสียภาษีไม่ถูกต้อง (checksum)');
+          const rec = Object.assign({}, q, { seq: String(demo.payees.length + 1), taxId: maskTaxId(tax),
+            branch: String(q.branch || '0').padStart(5, '0') });
+          rec.fullName = rec.fullName || buildFullName(rec.prefix, rec.shortName);
+          rec.fullAddress = rec.fullAddress || buildFullAddress(rec);
+          rec.name = rec.fullName;
+          demo.payees.push(rec); resolve(rec);
+        }
+        else if (action === 'init') resolve({ payees: demo.payees, types: ['ค่าบริการ', 'ค่าขนส่ง', 'ค่าประกัน'],
+          prefixes: ['บจก.', 'บมจ.', 'หจก.', 'นาย', 'นาง', 'นางสาว'],
           rates: [1, 3, 5], today: demo.t, nextRef: nextRefFrom(demo.entries.map(e => e.ref), demo.t.y), list: list() });
         else if (action === 'list') resolve(list());
         else if (action === 'nextRef') resolve(nextRefFrom(demo.entries.map(e => e.ref), +p.year));
@@ -166,7 +229,127 @@
   function fillPayees() {
     el.payee.innerHTML = '<option value="">— เลือกผู้รับเงิน —</option>' +
       state.payees.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)} — ${escapeHtml(p.name)}</option>`).join('');
+    syncPayeeInput();
   }
+
+  /* ---------------- searchable Payee box (drives the hidden <select>) ---------------- */
+  const combo = { input: $('fPayeeInput'), list: $('fPayeeList'), toggle: $('fPayeeToggle'), items: [], active: -1 };
+
+  function payeeLabel(id) {
+    if (!id) return '';
+    const p = state.payees.find(x => x.id === id);
+    if (p) return `${p.id} — ${p.name}`;
+    const opt = Array.from(el.payee.options).find(o => o.value === id);
+    return opt ? opt.textContent : id;
+  }
+  function syncPayeeInput() { combo.input.value = payeeLabel(el.payee.value); }
+
+  function highlight(text, q) {
+    text = String(text || '');
+    const i = q ? text.toLowerCase().indexOf(q) : -1;
+    if (i < 0) return escapeHtml(text);
+    return escapeHtml(text.slice(0, i)) + '<mark>' + escapeHtml(text.slice(i, i + q.length)) + '</mark>' + escapeHtml(text.slice(i + q.length));
+  }
+
+  /** Ranked matches on ID, name (with or without prefix) and tax ID. */
+  function searchPayees(raw) {
+    const q = String(raw || '').trim().toLowerCase();
+    if (!q) return state.payees.slice();
+    const qDigits = q.replace(/\D/g, '');
+    const words = q.split(/\s+/).filter(Boolean);
+    const out = [];
+    state.payees.forEach(p => {
+      const id = p.id.toLowerCase(), name = String(p.name || '').toLowerCase();
+      const short = String(p.shortName || '').toLowerCase(), tax = String(p.taxId || '').replace(/\D/g, '');
+      const hay = id + ' ' + name + ' ' + short;
+      let s = -1;
+      if (id === q) s = 0;
+      else if (id.startsWith(q)) s = 1;
+      else if (short.startsWith(q) || name.startsWith(q)) s = 2;
+      else if (id.includes(q)) s = 3;
+      else if (name.includes(q) || short.includes(q)) s = 4;
+      else if (qDigits.length >= 3 && qDigits.length === q.replace(/[\s-]/g, '').length && tax.includes(qDigits)) s = 5;
+      else if (words.length > 1 && words.every(w => hay.includes(w))) s = 6;
+      if (s >= 0) out.push([s, p]);
+    });
+    return out.sort((a, b) => a[0] - b[0]).map(x => x[1]);
+  }
+
+  function renderCombo(raw) {
+    const q = String(raw || '').trim().toLowerCase();
+    combo.items = searchPayees(q).slice(0, 50);
+    const cur = combo.items.findIndex(p => p.id === el.payee.value);
+    combo.active = q ? (combo.items.length ? 0 : -1) : cur;
+    combo.list.innerHTML = combo.items.length
+      ? combo.items.map((p, i) => `<li role="option" id="pOpt${i}" data-i="${i}" aria-selected="${i === combo.active}">
+          <span class="cid">${highlight(p.id, q)}</span><span>${highlight(p.name, q)}</span>
+          <span class="ctax">${escapeHtml(p.taxId || '')}</span></li>`).join('')
+      : '<li class="none">ไม่พบผู้รับเงินที่ตรงกับคำค้นหา</li>';
+    combo.list.hidden = false;
+    combo.input.setAttribute('aria-expanded', 'true');
+    moveActive(0);
+  }
+
+  function moveActive(delta) {
+    if (!combo.items.length) return;
+    if (delta) combo.active = Math.max(0, Math.min(combo.items.length - 1, combo.active + delta));
+    combo.list.querySelectorAll('li[role="option"]').forEach((li, i) => li.setAttribute('aria-selected', String(i === combo.active)));
+    const li = $('pOpt' + combo.active);
+    if (li) { li.scrollIntoView({ block: 'nearest' }); combo.input.setAttribute('aria-activedescendant', li.id); }
+  }
+
+  function closeCombo() {
+    combo.list.hidden = true;
+    combo.input.setAttribute('aria-expanded', 'false');
+    combo.input.removeAttribute('aria-activedescendant');
+  }
+
+  function choosePayee(p) {
+    el.payee.value = p ? p.id : '';
+    el.payee.dispatchEvent(new Event('change'));
+    closeCombo();
+  }
+
+  combo.input.addEventListener('input', () => { combo.input.classList.remove('invalid'); renderCombo(combo.input.value); });
+  combo.input.addEventListener('focus', () => { combo.input.select(); renderCombo(''); });
+  // Clicking a box that still shows the chosen payee selects the text, so typing replaces it
+  combo.input.addEventListener('click', () => {
+    if (combo.input.value && combo.input.value === payeeLabel(el.payee.value)) combo.input.select();
+    if (combo.list.hidden) renderCombo('');
+  });
+  combo.input.addEventListener('keydown', e => {
+    const open = !combo.list.hidden;
+    if (e.key === 'ArrowDown') { e.preventDefault(); open ? moveActive(1) : renderCombo(''); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (open) moveActive(-1); }
+    else if (e.key === 'Enter' && open) {
+      e.preventDefault();                       // don't submit the form
+      if (combo.active >= 0) choosePayee(combo.items[combo.active]);
+    }
+    else if (e.key === 'Escape' && open) { e.stopPropagation(); closeCombo(); syncPayeeInput(); }
+  });
+  combo.input.addEventListener('blur', () => {
+    setTimeout(() => {
+      closeCombo();
+      const typed = combo.input.value.trim();
+      if (!typed) { if (el.payee.value) choosePayee(null); return; }
+      if (typed === payeeLabel(el.payee.value)) return;
+      const exact = state.payees.find(p => p.id.toLowerCase() === typed.toLowerCase());
+      if (exact) { choosePayee(exact); return; }
+      const hits = searchPayees(typed);
+      if (hits.length === 1) choosePayee(hits[0]);   // only one possible match → take it
+      else syncPayeeInput();                           // otherwise keep the previous choice
+    }, 120);
+  });
+  combo.list.addEventListener('mousedown', e => {
+    e.preventDefault();                              // keep focus so blur doesn't fire first
+    const li = e.target.closest('li[data-i]');
+    if (li) choosePayee(combo.items[Number(li.dataset.i)]);
+  });
+  combo.toggle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    if (!combo.list.hidden) closeCombo();
+    else { combo.input.focus(); renderCombo(''); }
+  });
 
   function fillTypes() {
     el.type.innerHTML = state.types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') +
@@ -221,11 +404,11 @@
     el.submit.textContent = 'บันทึก';
     el.reset.textContent = 'ล้างข้อมูล';
     el.date.value = fmtDateInput(todayBE());
-    el.payee.value = ''; el.name.value = '';
+    el.payee.value = ''; el.name.value = ''; syncPayeeInput();
     el.type.selectedIndex = 0; el.typeCustom.hidden = true; el.typeCustom.value = '';
     el.rateCustom.value = ''; setRate(3);
     el.amount.value = ''; updateWht();
-    [el.date, el.payee, el.amount, el.typeCustom, el.rateCustom].forEach(x => x.classList.remove('invalid'));
+    [el.date, combo.input, el.amount, el.typeCustom, el.rateCustom].forEach(x => x.classList.remove('invalid'));
     updateRefPreview();
     renderList();
   }
@@ -244,7 +427,7 @@
     if (!state.payees.some(p => p.id === e.payeeId)) {
       el.payee.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(e.payeeId)}">${escapeHtml(e.payeeId)} — (ไม่พบใน Payee 53)</option>`);
     }
-    el.payee.value = e.payeeId; el.name.value = e.name;
+    el.payee.value = e.payeeId; el.name.value = e.name; syncPayeeInput();
     if (state.types.includes(e.type)) { el.type.value = e.type; el.typeCustom.hidden = true; }
     else { el.type.value = '__custom'; el.typeCustom.hidden = false; el.typeCustom.value = e.type; }
     if (state.rates.includes(e.rate)) setRate(e.rate);
@@ -260,7 +443,7 @@
     const d = parseBEDate(el.date.value); mark(el.date, !!d);
     const payee = state.payees.find(p => p.id === el.payee.value) ||
       (state.editing && el.payee.value === state.editing.payeeId ? { id: state.editing.payeeId, name: state.editing.name } : null);
-    mark(el.payee, !!payee);
+    mark(combo.input, !!payee);
     const type = currentType(); if (el.type.value === '__custom') mark(el.typeCustom, !!type);
     const rate = currentRate(); if (state.rate === 'custom') mark(el.rateCustom, !isNaN(rate));
     const amount = round2(parseAmount(el.amount.value)); mark(el.amount, amount > 0);
@@ -274,9 +457,7 @@
   }
 
   function openConfirm(entry) {
-    state.pending = entry;
     const isEdit = !!entry.ref;
-    el.confirmTitle.textContent = isEdit ? 'ยืนยันการแก้ไขข้อมูล' : 'ยืนยันการบันทึกข้อมูล';
     const rows = [
       ['เลขที่อ้างอิง', isEdit ? entry.ref : (el.ref.value ? el.ref.value + ' (โดยประมาณ)' : 'ออกเลขอัตโนมัติ')],
       ['วันที่', entry.date],
@@ -287,8 +468,27 @@
       ['จำนวนเงิน', fmtMoney(entry.amount) + ' บาท'],
       ['ภาษีที่หัก', fmtMoney(entry.wht) + ' บาท']
     ];
-    el.confirmList.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
-    el.btnConfirm.textContent = isEdit ? 'ยืนยันการแก้ไข' : 'ยืนยันการบันทึก';
+    openDialog({
+      title: isEdit ? 'ยืนยันการแก้ไขข้อมูล' : 'ยืนยันการบันทึกข้อมูล',
+      rows, confirmLabel: isEdit ? 'ยืนยันการแก้ไข' : 'ยืนยันการบันทึก',
+      run: async () => {
+        const saved = await api(isEdit ? 'update' : 'create', { entry });
+        toast(isEdit ? `แก้ไขรายการ ${saved.ref} เรียบร้อยแล้ว` : `บันทึกเรียบร้อย เลขที่อ้างอิง ${saved.ref}`);
+        state.refCache = {};
+        await loadList();
+        resetForm();
+      }
+    });
+  }
+
+  /** Generic Thai confirmation popup. opts: {title, rows, warn, confirmLabel, run} */
+  function openDialog(opts) {
+    state.pending = opts;
+    el.confirmTitle.textContent = opts.title;
+    el.confirmList.innerHTML = opts.rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v || '-')}</dd>`).join('');
+    el.confirmWarn.hidden = !opts.warn;
+    el.confirmWarn.textContent = opts.warn || '';
+    el.btnConfirm.textContent = opts.confirmLabel;
     el.confirm.classList.add('open');
     el.btnConfirm.focus();
   }
@@ -296,23 +496,148 @@
   function closeConfirm() { el.confirm.classList.remove('open'); state.pending = null; }
 
   async function doSave() {
-    const entry = state.pending;
-    if (!entry) return;
+    const opts = state.pending;
+    if (!opts) return;
     el.btnConfirm.disabled = true; el.btnCancel.disabled = true; el.btnConfirm.textContent = 'กำลังบันทึก…';
     try {
-      const isEdit = !!entry.ref;
-      const saved = await api(isEdit ? 'update' : 'create', { entry });
+      await opts.run();
       closeConfirm();
-      toast(isEdit ? `แก้ไขรายการ ${saved.ref} เรียบร้อยแล้ว` : `บันทึกเรียบร้อย เลขที่อ้างอิง ${saved.ref}`);
-      state.refCache = {};
-      await loadList();
-      resetForm();
     } catch (err) {
       toast('บันทึกไม่สำเร็จ: ' + err.message, true);
-      el.btnConfirm.textContent = entry.ref ? 'ยืนยันการแก้ไข' : 'ยืนยันการบันทึก';
+      el.btnConfirm.textContent = opts.confirmLabel;
     } finally {
       el.btnConfirm.disabled = false; el.btnCancel.disabled = false;
     }
+  }
+
+  /* =============================== Payee tab =============================== */
+  const PROVINCES = ['กรุงเทพมหานคร','กระบี่','กาญจนบุรี','กาฬสินธุ์','กำแพงเพชร','ขอนแก่น','จันทบุรี','ฉะเชิงเทรา',
+    'ชลบุรี','ชัยนาท','ชัยภูมิ','ชุมพร','เชียงราย','เชียงใหม่','ตรัง','ตราด','ตาก','นครนายก','นครปฐม','นครพนม',
+    'นครราชสีมา','นครศรีธรรมราช','นครสวรรค์','นนทบุรี','นราธิวาส','น่าน','บึงกาฬ','บุรีรัมย์','ปทุมธานี',
+    'ประจวบคีรีขันธ์','ปราจีนบุรี','ปัตตานี','พระนครศรีอยุธยา','พะเยา','พังงา','พัทลุง','พิจิตร','พิษณุโลก',
+    'เพชรบุรี','เพชรบูรณ์','แพร่','ภูเก็ต','มหาสารคาม','มุกดาหาร','แม่ฮ่องสอน','ยโสธร','ยะลา','ร้อยเอ็ด',
+    'ระนอง','ระยอง','ราชบุรี','ลพบุรี','ลำปาง','ลำพูน','เลย','ศรีสะเกษ','สกลนคร','สงขลา','สตูล','สมุทรปราการ',
+    'สมุทรสงคราม','สมุทรสาคร','สระแก้ว','สระบุรี','สิงห์บุรี','สุโขทัย','สุพรรณบุรี','สุราษฎร์ธานี','สุรินทร์',
+    'หนองคาย','หนองบัวลำภู','อ่างทอง','อำนาจเจริญ','อุดรธานี','อุตรดิตถ์','อุทัยธานี','อุบลราชธานี'];
+
+  const pel = {
+    form: $('payeeForm'), id: $('pId'), idHint: $('pIdHint'), prefix: $('pPrefix'), prefixCustom: $('pPrefixCustom'),
+    name: $('pName'), tax: $('pTax'), taxHint: $('pTaxHint'), branch: $('pBranch'), addr: $('pAddr'),
+    sub: $('pSub'), subLabel: $('pSubLabel'), dist: $('pDist'), distLabel: $('pDistLabel'), prov: $('pProv'),
+    zip: $('pZip'), fullName: $('pFullName'), fullAddr: $('pFullAddr'), reset: $('pReset'),
+    search: $('payeeSearch'), body: $('payeeBody'), count: $('payeeCount')
+  };
+  // "touched" = user typed in the auto-built field, so stop overwriting it
+  const auto = { fullName: true, fullAddr: true };
+
+  function fillPrefixes() {
+    pel.prefix.innerHTML = state.prefixes.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('') +
+      '<option value="__custom">อื่นๆ (ระบุเอง)</option>';
+    $('provList').innerHTML = PROVINCES.map(p => `<option value="${p}">`).join('');
+  }
+
+  const payeePrefix = () => pel.prefix.value === '__custom' ? pel.prefixCustom.value.trim() : pel.prefix.value;
+  const payeeAddrParts = () => ({ address: pel.addr.value.trim(), subdistrict: pel.sub.value.trim(),
+    district: pel.dist.value.trim(), province: pel.prov.value.trim(), zip: pel.zip.value.trim() });
+
+  function refreshPayeeAuto() {
+    if (auto.fullName) pel.fullName.value = buildFullName(payeePrefix(), pel.name.value);
+    if (auto.fullAddr) pel.fullAddr.value = buildFullAddress(payeeAddrParts());
+    const bkk = isBangkok(pel.prov.value);
+    pel.subLabel.textContent = bkk ? 'แขวง' : 'ตำบล / แขวง';
+    pel.distLabel.textContent = bkk ? 'เขต' : 'อำเภอ / เขต';
+  }
+
+  function checkPayeeId() {
+    const id = pel.id.value.trim();
+    const taken = id && state.payees.some(p => p.id === id);
+    pel.idHint.textContent = !id ? 'ห้ามซ้ำกับที่มีอยู่' : taken ? `มี ${id} อยู่แล้ว` : 'ใช้ได้';
+    pel.idHint.className = 'hint' + (!id ? '' : taken ? ' err' : ' ok');
+    return id && !taken;
+  }
+
+  function checkTax() {
+    const d = pel.tax.value.replace(/\D/g, '');
+    if (!d) { pel.taxHint.textContent = ''; pel.taxHint.className = 'hint'; return 'empty'; }
+    if (d.length < 13) { pel.taxHint.textContent = `กรอกแล้ว ${d.length}/13 หลัก`; pel.taxHint.className = 'hint'; return 'short'; }
+    const branch = (pel.branch.value.replace(/\D/g, '') || '0').padStart(5, '0');
+    const dup = state.payees.find(p => p.taxId.replace(/\D/g, '') === d &&
+      (p.branch.replace(/\D/g, '') || '0').padStart(5, '0') === branch);
+    if (dup) { pel.taxHint.textContent = `เลขนี้และสาขานี้มีอยู่แล้ว (${dup.id})`; pel.taxHint.className = 'hint err'; return 'dup'; }
+    if (!validTaxId(d)) { pel.taxHint.textContent = 'เลขตรวจสอบไม่ตรง — โปรดตรวจสอบอีกครั้ง'; pel.taxHint.className = 'hint warn'; return 'checksum'; }
+    pel.taxHint.textContent = 'เลขถูกต้อง'; pel.taxHint.className = 'hint ok'; return 'ok';
+  }
+
+  function resetPayeeForm() {
+    pel.form.reset();
+    pel.prefix.selectedIndex = 0; pel.prefixCustom.hidden = true;
+    pel.branch.value = '00000';
+    auto.fullName = auto.fullAddr = true;
+    pel.form.querySelectorAll('.invalid').forEach(x => x.classList.remove('invalid'));
+    checkPayeeId(); checkTax(); refreshPayeeAuto();
+  }
+
+  function renderPayees(highlightId) {
+    const q = pel.search.value.trim().toLowerCase();
+    const rows = state.payees.filter(p => !q ||
+      [p.id, p.name, p.shortName, p.taxId].some(v => String(v || '').toLowerCase().includes(q)));
+    pel.count.textContent = `รายชื่อ Payee 53 (${state.payees.length})`;
+    if (!rows.length) { pel.body.innerHTML = '<tr><td colspan="7" class="empty">ไม่พบรายชื่อ</td></tr>'; return; }
+    pel.body.innerHTML = rows.slice().reverse().map(p => `
+      <tr class="${p.id === highlightId ? 'is-new' : ''}">
+        <td class="mono">${escapeHtml(p.seq)}</td>
+        <td class="mono">${escapeHtml(p.id)}</td>
+        <td class="name">${escapeHtml(p.name)}</td>
+        <td class="mono" style="white-space:nowrap">${escapeHtml(p.taxId)}</td>
+        <td class="mono">${escapeHtml(p.branch)}</td>
+        <td style="min-width:240px">${escapeHtml(p.fullAddress)}</td>
+        <td><button type="button" class="btn small" data-use="${escapeHtml(p.id)}">ใช้บันทึกภาษี</button></td>
+      </tr>`).join('');
+  }
+
+  function submitPayee() {
+    const bad = [];
+    const mark = (input, ok) => { input.classList.toggle('invalid', !ok); if (!ok) bad.push(input); };
+    mark(pel.id, checkPayeeId());
+    if (pel.prefix.value === '__custom') mark(pel.prefixCustom, !!payeePrefix());
+    mark(pel.name, !!pel.name.value.trim());
+    const tax = checkTax();
+    mark(pel.tax, tax === 'ok' || tax === 'checksum');
+    mark(pel.branch, /^\d{1,5}$/.test(pel.branch.value.trim()));
+    mark(pel.addr, !!pel.addr.value.trim());
+    mark(pel.prov, !!pel.prov.value.trim());
+    mark(pel.zip, !pel.zip.value.trim() || /^\d{5}$/.test(pel.zip.value.trim()));
+    if (bad.length) { bad[0].focus(); toast('กรุณากรอกข้อมูลให้ครบถ้วนและถูกต้อง', true); return; }
+
+    const payee = Object.assign({
+      id: pel.id.value.trim(), prefix: payeePrefix(), shortName: pel.name.value.trim(),
+      taxId: pel.tax.value.replace(/\D/g, ''), branch: pel.branch.value.trim().padStart(5, '0'),
+      fullName: pel.fullName.value.trim(), fullAddress: pel.fullAddr.value.trim(),
+      allowInvalidTaxId: tax === 'checksum'
+    }, payeeAddrParts());
+
+    openDialog({
+      title: 'ยืนยันการเพิ่มผู้มีเงินได้',
+      rows: [
+        ['Payee ID', payee.id], ['คำนำหน้า', payee.prefix], ['ชื่อ', payee.shortName],
+        ['เลขผู้เสียภาษี', maskTaxId(payee.taxId)], ['สาขาที่', payee.branch],
+        ['ชื่อสำหรับกรอกข้อมูล', payee.fullName], ['ที่อยู่สำหรับกรอกข้อมูล', payee.fullAddress]
+      ],
+      warn: tax === 'checksum' ? 'คำเตือน: เลขประจำตัวผู้เสียภาษีไม่ผ่านการตรวจสอบ checksum — ยืนยันเฉพาะเมื่อมั่นใจว่าเลขถูกต้อง' : '',
+      confirmLabel: 'ยืนยันการเพิ่ม',
+      run: async () => {
+        const saved = await api('createPayee', { payee });
+        state.payees = await api('payees');
+        fillPayees(); renderPayees(saved.id); resetPayeeForm();
+        toast(`เพิ่ม Payee ${saved.id} เรียบร้อยแล้ว`);
+      }
+    });
+  }
+
+  function showView(v) {
+    document.querySelectorAll('.viewtab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === v)));
+    $('viewWht').hidden = v !== 'wht';
+    $('viewPayee').hidden = v !== 'payee';
   }
 
   /* ------------------------------- list ------------------------------- */
@@ -384,7 +709,8 @@
   el.payee.addEventListener('change', () => {
     const p = state.payees.find(x => x.id === el.payee.value);
     el.name.value = p ? p.name : (state.editing && el.payee.value === state.editing.payeeId ? state.editing.name : '');
-    el.payee.classList.remove('invalid');
+    combo.input.classList.remove('invalid');
+    syncPayeeInput();
   });
 
   el.type.addEventListener('change', () => {
@@ -440,6 +766,36 @@
     init();
   });
 
+  /* ---- payee tab events ---- */
+  document.querySelector('.viewtabs').addEventListener('click', e => {
+    const t = e.target.closest('.viewtab'); if (t) showView(t.dataset.view);
+  });
+  pel.id.addEventListener('input', () => { pel.id.classList.remove('invalid'); checkPayeeId(); });
+  pel.prefix.addEventListener('change', () => {
+    pel.prefixCustom.hidden = pel.prefix.value !== '__custom';
+    if (!pel.prefixCustom.hidden) pel.prefixCustom.focus();
+    refreshPayeeAuto();
+  });
+  [pel.prefixCustom, pel.name, pel.addr, pel.sub, pel.dist, pel.prov, pel.zip]
+    .forEach(i => i.addEventListener('input', () => { i.classList.remove('invalid'); refreshPayeeAuto(); }));
+  pel.tax.addEventListener('input', () => { pel.tax.value = maskTaxId(pel.tax.value); pel.tax.classList.remove('invalid'); checkTax(); });
+  pel.branch.addEventListener('input', () => { pel.branch.value = pel.branch.value.replace(/\D/g, ''); checkTax(); });
+  pel.branch.addEventListener('blur', () => { pel.branch.value = (pel.branch.value || '0').padStart(5, '0'); checkTax(); });
+  pel.zip.addEventListener('input', () => { pel.zip.value = pel.zip.value.replace(/\D/g, ''); refreshPayeeAuto(); });
+  pel.fullName.addEventListener('input', () => { auto.fullName = !pel.fullName.value; });
+  pel.fullAddr.addEventListener('input', () => { auto.fullAddr = !pel.fullAddr.value; });
+  pel.form.addEventListener('submit', e => { e.preventDefault(); submitPayee(); });
+  pel.reset.addEventListener('click', resetPayeeForm);
+  pel.search.addEventListener('input', () => renderPayees());
+  pel.body.addEventListener('click', e => {
+    const b = e.target.closest('[data-use]'); if (!b) return;
+    if (state.editing) resetForm();
+    el.payee.value = b.dataset.use;
+    el.payee.dispatchEvent(new Event('change'));
+    showView('wht');
+    el.formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
   /* ================================= init ================================= */
   async function init() {
     if (CFG.TITLE) { $('appTitle').textContent = CFG.TITLE; document.title = CFG.TITLE; }
@@ -452,8 +808,9 @@
       state.rates = data.rates || [1, 3, 5];
       state.list = data.list;
       if (data.today && data.nextRef) state.refCache[data.today.y] = data.nextRef;
-      fillPayees(); fillTypes(); fillRates(); renderTabs();
-      resetForm();
+      if (data.prefixes && data.prefixes.length) state.prefixes = data.prefixes;
+      fillPayees(); fillTypes(); fillRates(); fillPrefixes(); renderTabs();
+      resetForm(); resetPayeeForm(); renderPayees();
     } catch (err) {
       el.body.innerHTML = `<tr><td colspan="9" class="empty">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(err.message)}</td></tr>`;
       toast('โหลดข้อมูลไม่สำเร็จ: ' + err.message, true);

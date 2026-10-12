@@ -59,7 +59,7 @@
   .btn { font: inherit; border-radius: 8px; padding: 9px 18px; border: 1px solid var(--line);
     background: var(--surface-2); color: var(--text); cursor: pointer; min-height: 40px; }
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-  .btn.small { padding: 4px 12px; min-height: 30px; font-size: 13px; }
+  .btn.small { padding: 4px 12px; min-height: 30px; font-size: 13px; white-space: nowrap; }
   .btn:disabled { opacity: .55; cursor: progress; }
   .edit-banner { display: none; background: var(--warn-soft); color: var(--warn);
     padding: 8px 18px; font-size: 14px; border-bottom: 1px solid var(--line); }
@@ -73,6 +73,28 @@
   tr.is-editing td { background: var(--warn-soft); }
   tfoot td { font-weight: 600; background: var(--surface-2); }
   .empty { padding: 28px; text-align: center; color: var(--muted); }
+  .combo { position: relative; }
+  .combo input { padding-right: 36px; }
+  .combo-toggle { position: absolute; right: 4px; top: 4px; bottom: 4px; width: 30px; border: 0;
+    background: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+  .combo-list { position: absolute; z-index: 10; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px;
+    list-style: none; max-height: 300px; overflow-y: auto; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.15); }
+  .combo-list li { padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+  .combo-list li .cid { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--muted); min-width: 64px; }
+  .combo-list li .ctax { margin-left: auto; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .combo-list li[aria-selected="true"], .combo-list li:hover { background: var(--accent-soft); }
+  .combo-list li.none { color: var(--muted); cursor: default; background: none; }
+  .combo-list mark { background: none; color: var(--accent); font-weight: 600; }
+  @media (max-width: 520px) { .combo-list li .ctax { display: none; } }
+  .viewtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .viewtab { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--muted); padding: 10px 14px; cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+  .viewtab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .view { display: grid; gap: 16px; }
+  .view[hidden] { display: none; }
+  .hint.warn { color: var(--warn); } .hint.ok { color: var(--accent); } .hint.err { color: var(--danger); }
+  tr.is-new td { background: var(--accent-soft); }
   /* modal */
   .overlay { position: fixed; inset: 0; background: rgba(15,12,8,.45); display: none;
     align-items: center; justify-content: center; padding: 16px; z-index: 20; }
@@ -104,6 +126,12 @@
 </header>
 
 <main>
+  <nav class="viewtabs" role="tablist">
+    <button type="button" role="tab" class="viewtab" data-view="wht" aria-selected="true">บันทึกรายการภาษี</button>
+    <button type="button" role="tab" class="viewtab" data-view="payee" aria-selected="false">เพิ่ม Payee ใหม่</button>
+  </nav>
+
+  <div id="viewWht" class="view">
   <!-- ===== Form ===== -->
   <section class="card" id="formCard">
     <div class="card-head"><h2 id="formTitle">เพิ่มรายการใหม่</h2></div>
@@ -120,8 +148,14 @@
           <input id="fDate" class="mono" inputmode="numeric" placeholder="12/10/2569" maxlength="10" autocomplete="off">
         </div>
         <div class="span-2">
-          <label for="fPayee">Payee ID</label>
-          <select id="fPayee"><option value="">— เลือกผู้รับเงิน —</option></select>
+          <label for="fPayeeInput">Payee ID <small>(พิมพ์ค้นหา ID / ชื่อ / เลขผู้เสียภาษี)</small></label>
+          <div class="combo" id="payeeCombo">
+            <input id="fPayeeInput" role="combobox" aria-expanded="false" aria-controls="fPayeeList"
+                   aria-autocomplete="list" autocomplete="off" placeholder="พิมพ์เพื่อค้นหาผู้รับเงิน…">
+            <button type="button" class="combo-toggle" id="fPayeeToggle" tabindex="-1" aria-label="แสดงรายชื่อทั้งหมด">▾</button>
+            <ul class="combo-list" id="fPayeeList" role="listbox" hidden></ul>
+          </div>
+          <select id="fPayee" hidden aria-hidden="true" tabindex="-1"><option value="">— เลือกผู้รับเงิน —</option></select>
         </div>
         <div class="span-4">
           <label for="fName">ชื่อผู้มีเงินได้ (Name)</label>
@@ -173,6 +207,89 @@
       </table>
     </div>
   </section>
+  </div>
+
+  <!-- ===== Payee tab ===== -->
+  <div id="viewPayee" class="view" hidden>
+  <section class="card">
+    <div class="card-head"><h2>เพิ่มผู้มีเงินได้ (Payee 53)</h2></div>
+    <form class="card-body" id="payeeForm" novalidate>
+      <div class="grid">
+        <div>
+          <label for="pId">Payee ID</label>
+          <input id="pId" class="mono" maxlength="20" autocomplete="off" placeholder="เช่น 53อพ02">
+          <div class="hint" id="pIdHint">ห้ามซ้ำกับที่มีอยู่</div>
+        </div>
+        <div>
+          <label for="pPrefix">คำนำหน้า</label>
+          <select id="pPrefix"></select>
+          <input id="pPrefixCustom" placeholder="ระบุคำนำหน้า" style="margin-top:8px" hidden maxlength="30">
+        </div>
+        <div class="span-2">
+          <label for="pName">ชื่อของผู้มีเงินได้ <small>(ไม่ต้องใส่คำนำหน้า)</small></label>
+          <input id="pName" maxlength="150" autocomplete="off" placeholder="เช่น แอมเพอริช สโตน">
+        </div>
+        <div class="span-2">
+          <label for="pTax">เลขประจำตัวผู้เสียภาษีอากร <small>13 หลัก</small></label>
+          <input id="pTax" class="mono" inputmode="numeric" maxlength="17" autocomplete="off" placeholder="0-0000-00000-00-0">
+          <div class="hint" id="pTaxHint"></div>
+        </div>
+        <div>
+          <label for="pBranch">สาขาที่</label>
+          <input id="pBranch" class="mono" inputmode="numeric" maxlength="5" value="00000">
+          <div class="hint">00000 = สำนักงานใหญ่</div>
+        </div>
+        <div></div>
+        <div class="span-4">
+          <label for="pAddr">ที่อยู่ <small>(เลขที่ หมู่ ซอย ถนน)</small></label>
+          <input id="pAddr" maxlength="200" autocomplete="off" placeholder="เช่น 444 หมู่ 4">
+        </div>
+        <div>
+          <label for="pSub" id="pSubLabel">ตำบล / แขวง</label>
+          <input id="pSub" maxlength="80" autocomplete="off">
+        </div>
+        <div>
+          <label for="pDist" id="pDistLabel">อำเภอ / เขต</label>
+          <input id="pDist" maxlength="80" autocomplete="off">
+        </div>
+        <div>
+          <label for="pProv">จังหวัด</label>
+          <input id="pProv" maxlength="80" autocomplete="off" list="provList">
+        </div>
+        <div>
+          <label for="pZip">รหัสไปรษณีย์</label>
+          <input id="pZip" class="mono" inputmode="numeric" maxlength="5" autocomplete="off">
+        </div>
+        <div class="span-2">
+          <label for="pFullName">ชื่อสำหรับกรอกข้อมูล <small>(สร้างอัตโนมัติ แก้ไขได้)</small></label>
+          <input id="pFullName" maxlength="200">
+        </div>
+        <div class="span-2">
+          <label for="pFullAddr">ที่อยู่สำหรับกรอกข้อมูล <small>(สร้างอัตโนมัติ แก้ไขได้)</small></label>
+          <input id="pFullAddr" maxlength="300">
+        </div>
+      </div>
+      <datalist id="provList"></datalist>
+      <div class="actions">
+        <button class="btn" type="button" id="pReset">ล้างข้อมูล</button>
+        <button class="btn primary" type="submit" id="pSubmit">เพิ่ม Payee</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2 id="payeeCount">รายชื่อ Payee 53</h2>
+      <input id="payeeSearch" placeholder="ค้นหา ID / ชื่อ / เลขผู้เสียภาษี" style="max-width:280px;min-height:34px;padding:6px 10px">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ลำดับ</th><th>Payee ID</th><th>ชื่อสำหรับกรอกข้อมูล</th><th>เลขผู้เสียภาษี</th><th>สาขา</th><th>ที่อยู่</th><th></th></tr></thead>
+        <tbody id="payeeBody"><tr><td colspan="7" class="empty">กำลังโหลดข้อมูล…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+  </div>
 </main>
 
 <!-- Confirm modal -->
@@ -181,6 +298,7 @@
     <h3 id="confirmTitle">ยืนยันการบันทึกข้อมูล</h3>
     <p>กรุณาตรวจสอบข้อมูลให้ถูกต้องก่อนกดยืนยัน</p>
     <dl id="confirmList"></dl>
+    <div id="confirmWarn" class="hint warn" style="padding:10px 20px 0" hidden></div>
     <div class="actions">
       <button class="btn" type="button" id="btnCancel">ยกเลิก</button>
       <button class="btn primary" type="button" id="btnConfirm">ยืนยัน</button>
