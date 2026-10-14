@@ -374,7 +374,7 @@
 
 <!-- Bump PAGE_VERSION and both ?v= values together whenever index.html or app.js changes -->
 <script>
-  window.PAGE_VERSION = '5';
+  window.PAGE_VERSION = '6';
   window.showSysError = function (msg) {
     var b = document.getElementById('sysBanner');
     if (!b) return;
@@ -387,8 +387,8 @@
       'ลองกด <b>Ctrl+Shift+R</b> (Mac: <b>Cmd+Shift+R</b>) เพื่อโหลดใหม่ ถ้ายังเป็นอยู่ แจ้งข้อความนี้ให้ผู้ดูแล');
   });
 </script>
-<script src="config.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="app.js?v=6"></script>
 <script>
   // app.js sets APP_VERSION when it loads. Missing or different = old/cached/not uploaded.
   if (window.APP_VERSION !== window.PAGE_VERSION) {

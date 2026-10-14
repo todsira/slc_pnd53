@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   // Must equal PAGE_VERSION in index.html (checked there to catch mismatched / cached files)
-  if (typeof window !== 'undefined') window.APP_VERSION = '5';
+  if (typeof window !== 'undefined') window.APP_VERSION = '6';
 
   /* ============================ pure helpers ============================ */
   const BE = 543;
@@ -232,6 +232,12 @@
     el.payee.innerHTML = '<option value="">— เลือกผู้รับเงิน —</option>' +
       state.payees.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)} — ${escapeHtml(p.name)}</option>`).join('');
     syncPayeeInput();
+  }
+
+  /** Number for sorting; blanks / non-numbers sort last. */
+  function sortNum(v) {
+    const n = Number(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
+    return String(v == null ? '' : v).trim() && !isNaN(n) ? n : -Infinity;
   }
 
   /** Every payee gets every field as a string, so older backends (id + name only) can't break the UI. */
@@ -598,7 +604,10 @@
       [p.id, p.name, p.shortName, p.taxId].some(v => String(v || '').toLowerCase().includes(q)));
     pel.count.textContent = `รายชื่อ Payee 53 (${state.payees.length})`;
     if (!rows.length) { pel.body.innerHTML = '<tr><td colspan="7" class="empty">ไม่พบรายชื่อ</td></tr>'; return; }
-    pel.body.innerHTML = rows.slice().reverse().map(p => `
+    // Highest ลำดับ first; payees without a number keep sheet order, newest at top
+    const ordered = rows.map((p, i) => [p, i]).sort((a, b) =>
+      (sortNum(b[0].seq) - sortNum(a[0].seq)) || (b[1] - a[1])).map(x => x[0]);
+    pel.body.innerHTML = ordered.map(p => `
       <tr class="${p.id === highlightId ? 'is-new' : ''}">
         <td class="mono">${escapeHtml(p.seq)}</td>
         <td class="mono">${escapeHtml(p.id)}</td>
@@ -669,7 +678,8 @@
 
   function renderList() {
     const L = state.list;
-    let rows = L.entries || [];
+    // Newest Ref first (numeric, so 2569010 > 2569009 and 2569001 > 2568999)
+    let rows = (L.entries || []).slice().sort((a, b) => sortNum(b.ref) - sortNum(a.ref));
     if (state.filter === 'cur') rows = rows.filter(e => e.m === L.current.m && e.y === L.current.y);
     if (state.filter === 'prev') rows = rows.filter(e => e.m === L.previous.m && e.y === L.previous.y);
     if (!rows.length) {
