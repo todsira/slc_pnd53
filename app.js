@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   // Must equal PAGE_VERSION in index.html (checked there to catch mismatched / cached files)
-  if (typeof window !== 'undefined') window.APP_VERSION = '4';
+  if (typeof window !== 'undefined') window.APP_VERSION = '5';
 
   /* ============================ pure helpers ============================ */
   const BE = 543;
